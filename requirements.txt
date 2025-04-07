@@ -4,6 +4,6 @@ pymongo
 python-multipart
 spacy
 python-dateutil
-python-pydub
+pydub
 python-SpeechRecognition
 python-io
