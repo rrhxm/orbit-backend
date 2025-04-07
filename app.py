@@ -11,11 +11,11 @@ from pydantic import BaseModel
 import base64
 import re
 import traceback
-from transformers import pipeline
-import spacy
+# from transformers import pipeline
+# import spacy
 from dateutil.parser import parse as parse_date
-import speech_recognition as sr
-from pydub import AudioSegment
+# import speech_recognition as sr
+# from pydub import AudioSegment
 import io
 
 app = FastAPI()
@@ -40,14 +40,14 @@ db = client["orbit"]
 collection = db["canvas_elements"]
 
 # Initialize Hugging Face question-answering pipeline
-qa_pipeline = pipeline(
-    "question-answering", model="distilbert-base-uncased-distilled-squad"
-)
-print("Loaded Hugging Face question-answering pipeline")
+# qa_pipeline = pipeline(
+#     "question-answering", model="distilbert-base-uncased-distilled-squad"
+# )
+# print("Loaded Hugging Face question-answering pipeline")
 
 # Initialize spaCy for intent recognition and entity extraction
-nlp = spacy.load("en_core_web_sm")
-print("Loaded spaCy English model")
+# nlp = spacy.load("en_core_web_sm")
+# print("Loaded spaCy English model")
 
 class UpdateElement(BaseModel):
     title: Optional[str] = None
@@ -110,17 +110,17 @@ def create_audio(audio: Audio, user_id: str):
             audio_file = io.BytesIO(audio_bytes)
 
             # Convert to WAV format (required by SpeechRecognition)
-            audio_segment = AudioSegment.from_file(audio_file)
-            wav_file = io.BytesIO()
-            audio_segment.export(wav_file, format="wav")
-            wav_file.seek(0)
+            # audio_segment = AudioSegment.from_file(audio_file)
+            # wav_file = io.BytesIO()
+            # audio_segment.export(wav_file, format="wav")
+            # wav_file.seek(0)
 
             # Transcribe the audio
-            recognizer = sr.Recognizer()
-            with sr.AudioFile(wav_file) as source:
-                audio_data = recognizer.record(source)
-                transcription = recognizer.recognize_google(audio_data)
-                audio_dict["transcription"] = transcription
+            # recognizer = sr.Recognizer()
+            # with sr.AudioFile(wav_file) as source:
+            #     audio_data = recognizer.record(source)
+            #     transcription = recognizer.recognize_google(audio_data)
+            #     audio_dict["transcription"] = transcription
         except Exception as e:
             print(f"Error transcribing audio: {str(e)}")
             audio_dict["transcription"] = None
@@ -240,16 +240,16 @@ def smart_search(user_id: str, query: str):
             )
 
         # Step 2: Use spaCy to parse the query and determine intent
-        doc = nlp(query.lower())
+        # doc = nlp(query.lower())
         intent = "unknown"
         entities = {"date": None, "priority": None, "keyword": None, "specific_info": None}
 
         # Extract entities (e.g., dates, keywords)
-        for ent in doc.ents:
-            if ent.label_ == "DATE":
-                entities["date"] = ent.text
-            elif ent.label_ in ["ORG", "PERSON"]:
-                entities["keyword"] = ent.text
+        # for ent in doc.ents:
+        #     if ent.label_ == "DATE":
+        #         entities["date"] = ent.text
+        #     elif ent.label_ in ["ORG", "PERSON"]:
+        #         entities["keyword"] = ent.text
 
         # Determine intent based on keywords
         query_lower = query.lower()
@@ -526,51 +526,51 @@ def smart_search(user_id: str, query: str):
                 except ValueError:
                     answer = f"I couldn’t parse the date '{date_str}'. Please use a format like 'October 26th'."
 
-        elif intent == "qa":
-            # Filter relevant notes first
-            notes = [el for el in user_elements if el.get("type") == "note"]
-            matching_notes = [
-                note
-                for note in notes
-                if (note.get("title") and query_lower in note["title"].lower())
-                or (note.get("content") and query_lower in note["content"].lower())
-            ]
-            if not matching_notes:
-                answer = (
-                    f"I couldn’t find any information about '{query}' in your notes."
-                )
-            else:
-                # Combine content from matching notes
-                context = " ".join(
-                    [
-                        f"{note.get('title', '')}: {note.get('content', '')}"
-                        for note in matching_notes
-                        if note.get("content")
-                    ]
-                )
-                if not context.strip():
-                    answer = "I found some relevant notes, but they don’t contain enough content to answer your question."
-                else:
-                    # Use Hugging Face QA pipeline
-                    result = qa_pipeline({"question": query, "context": context})
-                    answer_text = result["answer"]
-                    score = result["score"]
+        # elif intent == "qa":
+        #     # Filter relevant notes first
+        #     notes = [el for el in user_elements if el.get("type") == "note"]
+        #     matching_notes = [
+        #         note
+        #         for note in notes
+        #         if (note.get("title") and query_lower in note["title"].lower())
+        #         or (note.get("content") and query_lower in note["content"].lower())
+        #     ]
+        #     if not matching_notes:
+        #         answer = (
+        #             f"I couldn’t find any information about '{query}' in your notes."
+        #         )
+        #     else:
+        #         # Combine content from matching notes
+        #         context = " ".join(
+        #             [
+        #                 f"{note.get('title', '')}: {note.get('content', '')}"
+        #                 for note in matching_notes
+        #                 if note.get("content")
+        #             ]
+        #         )
+        #         if not context.strip():
+        #             answer = "I found some relevant notes, but they don’t contain enough content to answer your question."
+        #         else:
+        #             # Use Hugging Face QA pipeline
+        #             result = qa_pipeline({"question": query, "context": context})
+        #             answer_text = result["answer"]
+        #             score = result["score"]
 
-                    if score < 0.1:
-                        # Fallback: Summarize the first few sentences
-                        first_note = matching_notes[0]
-                        content = first_note.get("content", "")
-                        sentences = content.split(". ")
-                        summary = (
-                            " ".join(sentences[:2]) + "."
-                            if len(sentences) >= 2
-                            else content
-                        )
-                        answer = f"{summary} (From your note titled \"{first_note['title']}\".)"
-                    else:
-                        answer = f"{answer_text} (From your note titled \"{matching_notes[0]['title']}\".)"
+        #             if score < 0.1:
+        #                 # Fallback: Summarize the first few sentences
+        #                 first_note = matching_notes[0]
+        #                 content = first_note.get("content", "")
+        #                 sentences = content.split(". ")
+        #                 summary = (
+        #                     " ".join(sentences[:2]) + "."
+        #                     if len(sentences) >= 2
+        #                     else content
+        #                 )
+        #                 answer = f"{summary} (From your note titled \"{first_note['title']}\".)"
+        #             else:
+        #                 answer = f"{answer_text} (From your note titled \"{matching_notes[0]['title']}\".)"
 
-                related_elements = [element_to_dict(note) for note in matching_notes]
+        #         related_elements = [element_to_dict(note) for note in matching_notes]
 
         return JSONResponse(
             content={"answer": answer, "elements": related_elements},
