@@ -11,7 +11,7 @@ from pydantic import BaseModel
 import base64
 import re
 import traceback
-from transformers import pipeline
+# from transformers import pipeline
 import spacy
 from dateutil.parser import parse as parse_date
 import speech_recognition as sr
