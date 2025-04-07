@@ -6,4 +6,3 @@ spacy
 python-dateutil
 pydub
 SpeechRecognition
-io
