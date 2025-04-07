@@ -2,6 +2,7 @@ fastapi
 uvicorn
 pymongo
 python-multipart
+transformers
 spacy
 python-dateutil
 pydub
