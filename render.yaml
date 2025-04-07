@@ -15,4 +15,4 @@ services:
       - key: MONGO_URI
         value: "mongodb+srv://orbituser:OrbitPass123!@orbit-cluster.4bi15tv.mongodb.net/?retryWrites=true&w=majority&appName=orbit-cluster"
       - key: PORT
-        value: 8001
+        value: 8000
