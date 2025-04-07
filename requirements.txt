@@ -5,5 +5,5 @@ python-multipart
 spacy
 python-dateutil
 pydub
-python-SpeechRecognition
-python-io
+SpeechRecognition
+io
