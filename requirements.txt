@@ -7,3 +7,4 @@ spacy
 python-dateutil
 pydub
 SpeechRecognition
+torch
