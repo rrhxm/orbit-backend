@@ -23,7 +23,7 @@ print("App instance created:", app)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "https://orbit-mocha-phi.vercel.app/"],
+    allow_origins=["http://localhost:5173", "https://orbit-frontend-taupe.vercel.app/"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
