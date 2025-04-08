@@ -227,7 +227,6 @@ def smart_search(user_id: str, query: str):
         if not query:
             return JSONResponse(
                 content={"answer": "Please provide a query.", "elements": []},
-                headers={"Access-Control-Allow-Origin": "https://orbit-mocha-phi.vercel.app"},
             )
 
         print(f"Smart search for user_id: {user_id}, query: {query}")
@@ -236,7 +235,6 @@ def smart_search(user_id: str, query: str):
         if not user_elements:
             return JSONResponse(
                 content={"answer": "No elements found for this user.", "elements": []},
-                headers={"Access-Control-Allow-Origin": "https://orbit-mocha-phi.vercel.app"},
             )
 
         # Step 2: Use spaCy to parse the query and determine intent
@@ -574,7 +572,6 @@ def smart_search(user_id: str, query: str):
 
         return JSONResponse(
             content={"answer": answer, "elements": related_elements},
-            headers={"Access-Control-Allow-Origin": "https://orbit-mocha-phi.vercel.app"},
         )
     except Exception as e:
         print(f"Error in /smart_search endpoint: {str(e)}")
@@ -585,5 +582,4 @@ def smart_search(user_id: str, query: str):
                 "elements": [],
             },
             status_code=500,
-            headers={"Access-Control-Allow-Origin": "https://orbit-mocha-phi.vercel.app"},
         )
