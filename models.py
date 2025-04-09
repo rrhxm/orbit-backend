@@ -40,3 +40,11 @@ class Audio(BaseElement):
     title: str = Field(..., description="Title of the audio")
     audio_data: Optional[str] = Field(None, description="Base64-encoded audio data")
     transcription: Optional[str] = Field(None, description="Transcription of the audio content")
+    
+class Scribble(BaseModel):
+    title: str
+    scribbleData: Optional[str] = None  # Store base64 image data
+    x: Optional[float] = None
+    y: Optional[float] = None
+    user_id: str
+    created_at: Optional[str] = None

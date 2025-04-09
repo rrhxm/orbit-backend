@@ -5,7 +5,7 @@ from pymongo import MongoClient
 from pymongo.server_api import ServerApi
 from bson import ObjectId
 from datetime import datetime, timezone, timedelta
-from models import Note, Task, Image, Audio
+from models import Note, Task, Image, Audio, Scribble
 from typing import List, Optional
 from pydantic import BaseModel
 import base64
@@ -95,6 +95,15 @@ def create_image(image: Image, user_id: str):
     result = collection.insert_one(image_dict)
     image_dict["_id"] = str(result.inserted_id)
     return image_dict
+
+@app.post("/scribbles/", response_model=dict)
+def create_scribble(scribble: Scribble, user_id: str):
+    scribble_dict = scribble.model_dump()
+    scribble_dict["user_id"] = user_id
+    scribble_dict["created_at"] = datetime.now(timezone.utc).isoformat()
+    result = collection.insert_one(scribble_dict)
+    scribble_dict["_id"] = str(result.inserted_id)
+    return scribble_dict
 
 @app.post("/audios/", response_model=dict)
 def create_audio(audio: Audio, user_id: str):
