@@ -100,7 +100,7 @@ def create_image(image: Image, user_id: str):
     return image_dict
 
 @app.post("/scribbles/", response_model=dict)
-def create_scribble(scribble: Scribble = Depends(add_timestamps), user_id: str):
+def create_scribble(user_id: str, scribble: Scribble = Depends(add_timestamps)):
     scribble_dict = scribble.model_dump()
     scribble_dict["user_id"] = user_id
     result = collection.insert_one(scribble_dict)
