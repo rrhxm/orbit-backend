@@ -2,19 +2,30 @@ from pydantic import BaseModel, Field
 from typing import Optional
 from datetime import datetime, timezone
 
+
 # Common Base Model
 class BaseElement(BaseModel):
     x: int = Field(..., description="X position on canvas")
     y: int = Field(..., description="Y position on canvas")
-    type: str = Field(..., description="Type of element (e.g., note, task, image, audio)")
-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), description="Date & time created")
-    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), description="Date & time updated")
+    type: str = Field(
+        ..., description="Type of element (e.g., note, task, image, audio, scribble)"
+    )
+    created_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc),
+        description="Date & time created",
+    )
+    updated_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc),
+        description="Date & time updated",
+    )
+
 
 # Note Model
 class Note(BaseElement):
     type: str = "note"
     title: str = Field(..., description="Title of the note")
     content: str = Field(..., description="Content of the note")
+
 
 # Task Model
 class Task(BaseElement):
@@ -25,8 +36,12 @@ class Task(BaseElement):
     priority: str = Field(..., description="Task priority: low, medium, high")
     repeat: str = Field("no", description="Repeat daily: yes or no")
     completed: bool = Field(False, description="Task completion status")
-    last_reset: str = Field(default_factory=lambda: datetime.now(timezone.utc).strftime("%Y-%m-%d"), description="Last reset date for repeating tasks")
+    last_reset: str = Field(
+        default_factory=lambda: datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+        description="Last reset date for repeating tasks",
+    )
     is_edited: bool = Field(False, description="Whether the task has been edited")
+
 
 # Image Model
 class Image(BaseElement):
@@ -34,17 +49,22 @@ class Image(BaseElement):
     title: str = Field(..., description="Title of the image")
     image_data: Optional[str] = Field(None, description="Base64-encoded image data")
 
+
 # Audio Model
 class Audio(BaseElement):
     type: str = "audio"
     title: str = Field(..., description="Title of the audio")
     audio_data: Optional[str] = Field(None, description="Base64-encoded audio data")
-    transcription: Optional[str] = Field(None, description="Transcription of the audio content")
-    
-class Scribble(BaseModel):
-    title: str
-    scribbleData: Optional[str] = None  # Store base64 image data
-    x: Optional[float] = None
-    y: Optional[float] = None
-    user_id: str
-    created_at: Optional[str] = None
+    transcription: Optional[str] = Field(
+        None, description="Transcription of the audio content"
+    )
+
+
+# Scribble Model
+class Scribble(BaseElement):
+    type: str = "scribble"
+    title: str = Field(..., description="Title of the scribble")
+    scribbleData: Optional[str] = Field(None, description="Base64-encoded drawing data")
+    user_id: Optional[str] = Field(
+        None, description="User ID associated with the scribble"
+    )  # Made optional
