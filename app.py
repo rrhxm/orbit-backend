@@ -1,27 +1,22 @@
-from fastapi import FastAPI, HTTPException, Depends, Header, File, UploadFile
+from fastapi import FastAPI, HTTPException, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from pymongo import MongoClient
-from pymongo.server_api import ServerApi
+from motor.motor_asyncio import AsyncIOMotorClient
 from bson import ObjectId
 from datetime import datetime, timezone, timedelta
 from models import Note, Task, Image, Audio, Scribble
 from typing import List, Optional
 from pydantic import BaseModel
 import base64
+import io
 import re
 import traceback
-
-# from transformers import pipeline
-# import spacy
-from dateutil.parser import parse as parse_date
-
-# import speech_recognition as sr
-# from pydub import AudioSegment
-import io
+import tempfile
+import os
+from faster_whisper import WhisperModel
+from dateutil.parser import parse
 
 app = FastAPI()
-print("App instance created:", app)
 
 app.add_middleware(
     CORSMiddleware,
@@ -35,21 +30,33 @@ app.add_middleware(
 )
 
 MONGO_URI = "mongodb+srv://orbituser:OrbitPass123!@orbit-cluster.4bi15tv.mongodb.net/?retryWrites=true&w=majority&appName=orbit-cluster"
-client = MongoClient(MONGO_URI, server_api=ServerApi("1"))
+client = AsyncIOMotorClient(MONGO_URI)
 try:
-    client.server_info()
+    client.server_info()  # This will raise an exception if the connection fails
     print("Successfully connected to MongoDB Atlas!")
 except Exception as e:
     print(f"Failed to connect to MongoDB Atlas: {str(e)}")
 db = client["orbit"]
 collection = db["canvas_elements"]
 
-# Dependency to add created_at and updated_at before validation
-def add_timestamps(scribble: Scribble):
-    scribble_dict = scribble.model_dump()
-    scribble_dict["created_at"] = datetime.now(timezone.utc).isoformat()
-    scribble_dict["updated_at"] = datetime.now(timezone.utc).isoformat()
-    return Scribble(**scribble_dict)
+# Initialize Whisper model with optimizations for Render
+try:
+    whisper_model = WhisperModel(
+        "tiny",  # Use the smallest model for Render's CPU constraints
+        device="cpu",
+        compute_type="int8",  # Optimize for CPU performance
+        cpu_threads=2,  # Limit threads to avoid overloading Render's free tier
+    )
+    print("Faster Whisper model loaded successfully!")
+except Exception as e:
+    print(f"Failed to load Faster Whisper model: {str(e)}")
+    whisper_model = None
+
+async def add_timestamps(request: Request):
+    body = await request.json()
+    body["created_at"] = datetime.now(timezone.utc).isoformat()
+    body["updated_at"] = datetime.now(timezone.utc).isoformat()
+    return Scribble(**body)
 
 class UpdateElement(BaseModel):
     title: Optional[str] = None
@@ -73,116 +80,190 @@ def element_to_dict(element):
     return element
 
 @app.post("/notes/", response_model=dict)
-def create_note(note: Note, user_id: str):
+async def create_note(note: Note, user_id: str):
     note_dict = note.model_dump()
     note_dict["user_id"] = user_id
     note_dict["created_at"] = datetime.now(timezone.utc).isoformat()
-    result = collection.insert_one(note_dict)
+    result = await collection.insert_one(note_dict)
     note_dict["_id"] = str(result.inserted_id)
     return note_dict
 
 @app.post("/tasks/", response_model=dict)
-def create_task(task: Task, user_id: str):
+async def create_task(task: Task, user_id: str):
     task_dict = task.model_dump()
     task_dict["user_id"] = user_id
     task_dict["created_at"] = datetime.now(timezone.utc).isoformat()
-    result = collection.insert_one(task_dict)
+    result = await collection.insert_one(task_dict)
     task_dict["_id"] = str(result.inserted_id)
     return task_dict
 
 @app.post("/images/", response_model=dict)
-def create_image(image: Image, user_id: str):
+async def create_image(image: Image, user_id: str):
     image_dict = image.model_dump()
     image_dict["user_id"] = user_id
     image_dict["created_at"] = datetime.now(timezone.utc).isoformat()
-    result = collection.insert_one(image_dict)
+    result = await collection.insert_one(image_dict)
     image_dict["_id"] = str(result.inserted_id)
     return image_dict
 
 @app.post("/scribbles/", response_model=dict)
-def create_scribble(user_id: str, scribble: Scribble = Depends(add_timestamps)):
+async def create_scribble(user_id: str, scribble: Scribble = Depends(add_timestamps)):
     scribble_dict = scribble.model_dump()
     scribble_dict["user_id"] = user_id
-    result = collection.insert_one(scribble_dict)
+    result = await collection.insert_one(scribble_dict)
     if result.inserted_id:
         scribble_dict["_id"] = str(result.inserted_id)
         return scribble_dict
     raise HTTPException(status_code=500, detail="Failed to insert scribble")
 
 @app.post("/audios/", response_model=dict)
-def create_audio(audio: Audio, user_id: str):
+async def create_audio(audio: Audio, user_id: str):
     audio_dict = audio.model_dump()
     audio_dict["user_id"] = user_id
     audio_dict["created_at"] = datetime.now(timezone.utc).isoformat()
-
     if audio_dict.get("audio_data"):
         try:
             audio_bytes = base64.b64decode(audio_dict["audio_data"].split(",")[1])
             audio_file = io.BytesIO(audio_bytes)
-            # audio_segment = AudioSegment.from_file(audio_file)
-            # wav_file = io.BytesIO()
-            # audio_segment.export(wav_file, format="wav")
-            # wav_file.seek(0)
-            # recognizer = sr.Recognizer()
-            # with sr.AudioFile(wav_file) as source:
-            #     audio_data = recognizer.record(source)
-            #     transcription = recognizer.recognize_google(audio_data)
-            #     audio_dict["transcription"] = transcription
         except Exception as e:
-            print(f"Error transcribing audio: {str(e)}")
+            print(f"Error processing audio: {str(e)}")
             audio_dict["transcription"] = None
-
-    result = collection.insert_one(audio_dict)
+    result = await collection.insert_one(audio_dict)
     audio_dict["_id"] = str(result.inserted_id)
     return audio_dict
 
 @app.get("/elements/", response_model=List[dict])
-def get_elements(user_id: str):
-    print("get_elements endpoint called with user_id:", user_id)
-    elements = list(collection.find({"user_id": user_id}))
+async def get_elements(user_id: str, page: int = 1, per_page: int = 10):
+    skip = (page - 1) * per_page
+    elements = await collection.find({"user_id": user_id}).sort("_id", 1).skip(skip).limit(per_page).to_list(length=per_page)
     return [element_to_dict(element) for element in elements]
 
 @app.get("/elements/{element_id}", response_model=dict)
-def get_element(element_id: str, user_id: str):
-    element = collection.find_one({"_id": ObjectId(element_id), "user_id": user_id})
+async def get_element(element_id: str, user_id: str):
+    element = await collection.find_one({"_id": ObjectId(element_id), "user_id": user_id})
     if not element:
         raise HTTPException(status_code=404, detail="Element not found or unauthorized")
     return element_to_dict(element)
 
 @app.put("/elements/{element_id}", response_model=dict)
-def update_element(element_id: str, updated_data: UpdateElement, user_id: str):
-    print("Received updated_data:", updated_data)
-    updated_data_dict = updated_data.model_dump(exclude_unset=True)
+async def update_element(element_id: str, updated_data: UpdateElement, user_id: str):
+    updated_data_dict = updated_data.model_dump(exclude_unset=True, exclude_none=True)
+    if not updated_data_dict:
+        return {"message": "No changes provided to update"}
+    
     updated_data_dict["updated_at"] = datetime.now(timezone.utc).isoformat()
-    result = collection.update_one(
-        {"_id": ObjectId(element_id), "user_id": user_id}, {"$set": updated_data_dict}
+    
+    result = await collection.update_one(
+        {"_id": ObjectId(element_id), "user_id": user_id},
+        {"$set": updated_data_dict}
     )
     if result.matched_count == 0:
         raise HTTPException(status_code=404, detail="Element not found or unauthorized")
     return {"message": "Element updated successfully"}
 
 @app.delete("/elements/{element_id}")
-def delete_element(element_id: str, user_id: str):
-    result = collection.delete_one({"_id": ObjectId(element_id), "user_id": user_id})
+async def delete_element(element_id: str, user_id: str):
+    result = await collection.delete_one({"_id": ObjectId(element_id), "user_id": user_id})
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Element not found or unauthorized")
     return {"message": "Element deleted successfully"}
 
+@app.post("/transcribe/{element_id}", response_model=dict)
+async def transcribe_audio(element_id: str, user_id: str):
+    try:
+        # Check if Whisper model is available
+        if whisper_model is None:
+            raise HTTPException(status_code=503, detail="Transcription service unavailable. Please try again later.")
+
+        # Fetch the audio element from the database
+        element = await collection.find_one({"_id": ObjectId(element_id), "user_id": user_id})
+        if not element:
+            raise HTTPException(status_code=404, detail="Audio element not found or unauthorized")
+        
+        if element.get("type") != "audio":
+            raise HTTPException(status_code=400, detail="Element is not an audio type")
+        
+        if not element.get("audio_data"):
+            raise HTTPException(status_code=400, detail="No audio data available for transcription")
+
+        # Decode the Base64 audio data
+        try:
+            audio_data = element["audio_data"]
+            # Handle Base64 format (remove data URI prefix if present)
+            if "," in audio_data:
+                audio_data = audio_data.split(",")[1]
+            audio_bytes = base64.b64decode(audio_data)
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Invalid audio data format: {str(e)}")
+
+        # Save to a temporary file with proper extension
+        temp_file_path = None
+        try:
+            with tempfile.NamedTemporaryFile(suffix=".webm", delete=False) as temp_file:
+                temp_file.write(audio_bytes)
+                temp_file_path = temp_file.name
+
+            # Transcribe using Faster Whisper with language detection
+            segments, info = whisper_model.transcribe(
+                temp_file_path,
+                beam_size=5,
+                language=None,  # Auto-detect language
+                condition_on_previous_text=False,  # Avoid context carryover
+            )
+            transcription = " ".join(segment.text for segment in segments).strip()
+
+            # Log detected language for debugging
+            print(f"Detected language: {info.language}, Probability: {info.language_probability}")
+
+            # Validate transcription result
+            if not transcription:
+                raise HTTPException(status_code=500, detail="Transcription resulted in empty text")
+
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Transcription failed: {str(e)}")
+        finally:
+            # Clean up the temporary file
+            if temp_file_path and os.path.exists(temp_file_path):
+                try:
+                    os.unlink(temp_file_path)
+                except Exception as e:
+                    print(f"Failed to delete temporary file {temp_file_path}: {str(e)}")
+
+        # Update the element in the database with the transcription
+        updated_data = {
+            "transcription": transcription,
+            "updated_at": datetime.now(timezone.utc).isoformat()
+        }
+        result = await collection.update_one(
+            {"_id": ObjectId(element_id), "user_id": user_id},
+            {"$set": updated_data}
+        )
+        if result.matched_count == 0:
+            raise HTTPException(status_code=404, detail="Failed to update element with transcription")
+
+        return {"transcription": transcription}
+    except Exception as e:
+        # Log the full traceback for debugging
+        print(f"Transcription error: {str(e)}\n{traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=f"Transcription failed: {str(e)}")
+
 @app.get("/search", response_model=List[dict])
-def search_elements(user_id: str, query: str):
+async def search_elements(user_id: str, query: str):
     try:
         if not query:
             return []
         query_lower = query.lower()
-        print(f"Searching for user_id: {user_id}, query: {query_lower}")
-        elements = list(collection.find({"user_id": user_id}))
-        print(f"Found {len(elements)} elements for user_id: {user_id}")
+        elements = await collection.find({"user_id": user_id}).to_list(length=None)
         results = []
         for element in elements:
             title = element.get("title", "")
-            title_match = bool(title and isinstance(title, str) and query_lower in title.lower())
+            title_match = bool(
+                title and isinstance(title, str) and query_lower in title.lower()
+            )
             content = element.get("content", "")
-            content_match = element.get("type") == "note" and bool(content and isinstance(content, str) and query_lower in content.lower())
+            content_match = element.get("type") == "note" and bool(
+                content and isinstance(content, str) and query_lower in content.lower()
+            )
             created_at = element.get("created_at")
             date_match = False
             if created_at and isinstance(created_at, str):
@@ -196,43 +277,47 @@ def search_elements(user_id: str, query: str):
                         or str(created_at.year) == query_lower
                     )
                 except ValueError as e:
-                    print(f"Error parsing created_at: {e}")
                     date_match = False
             transcription = element.get("transcription", "")
             transcription_match = element.get("type") == "audio" and bool(
-                transcription and isinstance(transcription, str) and query_lower in transcription.lower()
+                transcription
+                and isinstance(transcription, str)
+                and query_lower in transcription.lower()
             )
             if title_match or content_match or date_match or transcription_match:
                 results.append(element_to_dict(element))
-        print(f"Returning {len(results)} results")
         return results
     except Exception as e:
-        print(f"Error in /search endpoint: {str(e)}")
-        print(traceback.format_exc())
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
 @app.get("/smart_search", response_model=dict)
-def smart_search(user_id: str, query: str):
+async def smart_search(user_id: str, query: str):
     try:
         if not query:
             return JSONResponse(
                 content={"answer": "Please provide a query.", "elements": []},
             )
-        print(f"Smart search for user_id: {user_id}, query: {query}")
-        user_elements = list(collection.find({"user_id": user_id}))
+        user_elements = await collection.find({"user_id": user_id}).to_list(length=None)
         if not user_elements:
             return JSONResponse(
                 content={"answer": "No elements found for this user.", "elements": []},
             )
         intent = "unknown"
-        entities = {"date": None, "priority": None, "keyword": None, "specific_info": None}
+        entities = {
+            "date": None,
+            "priority": None,
+            "keyword": None,
+            "specific_info": None,
+        }
         query_lower = query.lower()
         if "task" in query_lower:
             if "due" in query_lower or "upcoming" in query_lower:
                 intent = "tasks_due"
             elif "tag" in query_lower or "tagged" in query_lower:
                 intent = "tasks_priority"
-                priority_match = re.search(r"tag(?:ged)?\s+['\"]([^'\"]+)['\"]", query_lower)
+                priority_match = re.search(
+                    r"tag(?:ged)?\s+['\"]([^'\"]+)['\"]", query_lower
+                )
                 if priority_match:
                     priority = priority_match.group(1).lower()
                     entities["priority"] = "high" if "urgent" in priority else priority
@@ -240,12 +325,16 @@ def smart_search(user_id: str, query: str):
                     words = query_lower.split()
                     if "tagged" in words and words.index("tagged") + 1 < len(words):
                         priority = words[words.index("tagged") + 1].lower()
-                        entities["priority"] = "high" if "urgent" in priority else priority
+                        entities["priority"] = (
+                            "high" if "urgent" in priority else priority
+                        )
             else:
                 intent = "tasks_general"
         elif "where" in query_lower or "find note" in query_lower:
             intent = "find_notes"
-            keyword_match = re.search(r"(?:where.*write about|find note.*related to)\s+(.+)", query_lower)
+            keyword_match = re.search(
+                r"(?:where.*write about|find note.*related to)\s+(.+)", query_lower
+            )
             if keyword_match:
                 entities["keyword"] = keyword_match.group(1).strip("'\"")
             else:
@@ -261,7 +350,9 @@ def smart_search(user_id: str, query: str):
                 entities["specific_info"] = item_match.group(1).strip()
         elif "audio" in query_lower or "recording" in query_lower:
             intent = "find_audio"
-            keyword_match = re.search(r"(?:mentioned|about)\s+['\"]([^'\"]+)['\"]", query_lower)
+            keyword_match = re.search(
+                r"(?:mentioned|about)\s+['\"]([^'\"]+)['\"]", query_lower
+            )
             if keyword_match:
                 entities["keyword"] = keyword_match.group(1)
             else:
@@ -429,7 +520,9 @@ def smart_search(user_id: str, query: str):
                     and keyword.lower() in audio["transcription"].lower()
                 ]
                 if not matching_audios:
-                    answer = f"I couldn’t find an audio recording mentioning '{keyword}'."
+                    answer = (
+                        f"I couldn’t find an audio recording mentioning '{keyword}'."
+                    )
                 else:
                     audio_list = []
                     for audio in matching_audios:
@@ -442,8 +535,9 @@ def smart_search(user_id: str, query: str):
                         audio_list.append(
                             f"- \"{audio['title']}\" recorded on {audio['created_at']}: \"{snippet}\""
                         )
-                    answer = f"The audio recordings mentioning '{keyword}' are:\n" + "\n".join(
-                        audio_list
+                    answer = (
+                        f"The audio recordings mentioning '{keyword}' are:\n"
+                        + "\n".join(audio_list)
                     )
                     related_elements = [
                         element_to_dict(audio) for audio in matching_audios
@@ -455,7 +549,7 @@ def smart_search(user_id: str, query: str):
                 answer = "Please specify a date for the meeting (e.g., 'meeting on October 26th')."
             else:
                 try:
-                    meeting_date = parse_date(date_str, fuzzy=True)
+                    meeting_date = parse(date_str, fuzzy=True)
                     meeting_date_str = meeting_date.strftime("%Y-%m-%d")
                     notes = [el for el in user_elements if el.get("type") == "note"]
                     matching_notes = [
@@ -465,23 +559,31 @@ def smart_search(user_id: str, query: str):
                         or (note.get("title") and meeting_date_str in note["title"])
                     ]
                     if not matching_notes:
-                        answer = f"I couldn’t find a note about a meeting on {date_str}."
+                        answer = (
+                            f"I couldn’t find a note about a meeting on {date_str}."
+                        )
                     else:
                         note = matching_notes[0]
                         content = note.get("content", "")
                         sentences = content.split(". ")
-                        takeaway = sentences[0] + "." if sentences else "No detailed content available."
+                        takeaway = (
+                            sentences[0] + "."
+                            if sentences
+                            else "No detailed content available."
+                        )
                         answer = f"The key takeaway from the meeting on {date_str}, found in a note titled \"{note['title']}\", is: \"{takeaway}\""
                         related_elements = [element_to_dict(note)]
                 except ValueError:
                     answer = f"I couldn’t parse the date '{date_str}'. Please use a format like 'October 26th'."
 
+        else:  # intent == "qa"
+            answer = "I’m not sure how to answer that. Try asking about tasks, notes, or audio recordings."
+            related_elements = []
+
         return JSONResponse(
             content={"answer": answer, "elements": related_elements},
         )
     except Exception as e:
-        print(f"Error in /smart_search endpoint: {str(e)}")
-        print(traceback.format_exc())
         return JSONResponse(
             content={
                 "answer": "An error occurred while processing your query.",
