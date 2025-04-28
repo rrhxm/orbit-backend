@@ -133,9 +133,8 @@ async def create_audio(audio: Audio, user_id: str):
     return audio_dict
 
 @app.get("/elements/", response_model=List[dict])
-async def get_elements(user_id: str, page: int = 1, per_page: int = 10):
-    skip = (page - 1) * per_page
-    elements = await collection.find({"user_id": user_id}).sort("_id", 1).skip(skip).limit(per_page).to_list(length=per_page)
+async def get_elements(user_id: str):
+    elements = await collection.find({"user_id": user_id}).sort("created_at", 1).to_list(length=None)
     return [element_to_dict(element) for element in elements]
 
 @app.get("/elements/{element_id}", response_model=dict)
