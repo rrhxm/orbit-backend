@@ -15,9 +15,6 @@ import tempfile
 import os
 from faster_whisper import WhisperModel
 from dateutil.parser import parse
-from sentence_transformers import SentenceTransformer
-import chromadb
-from nltk.tokenize import sent_tokenize
 
 app = FastAPI()
 
@@ -54,13 +51,6 @@ try:
 except Exception as e:
     print(f"Failed to load Faster Whisper model: {str(e)}")
     whisper_model = None
-
-# Initialize ChromaDB client (persistent storage)
-chroma_client = chromadb.PersistentClient(path="./chroma_db")
-collection_db = chroma_client.get_or_create_collection(name="user_data")
-
-# Initialize the embedding model
-embedder = SentenceTransformer('all-MiniLM-L6-v2')
 
 async def add_timestamps(request: Request):
     body = await request.json()
@@ -298,94 +288,6 @@ async def search_elements(user_id: str, query: str):
         return results
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
-
-# Helper function to chunk text
-def chunk_text(text, max_length=200):
-    sentences = sent_tokenize(text)
-    chunks = []
-    current_chunk = ""
-    for sentence in sentences:
-        if len(current_chunk) + len(sentence) <= max_length:
-            current_chunk += " " + sentence
-        else:
-            if current_chunk:
-                chunks.append(current_chunk.strip())
-            current_chunk = sentence
-    if current_chunk:
-        chunks.append(current_chunk.strip())
-    return chunks
-
-# Endpoint to index user data (call this when data changes)
-@app.post("/index_data", response_model=dict)
-async def index_data(user_id: str):
-    try:
-        elements = await collection.find({"user_id": user_id}).to_list(length=None)
-        if not elements:
-            return {"message": "No elements to index"}
-
-        # Clear existing data for this user
-        collection_db.delete(where={"user_id": user_id})
-
-        # Process each element
-        for element in elements:
-            text = element.get("content") or element.get("transcription") or ""
-            if not text:
-                continue
-
-            # Chunk the text
-            chunks = chunk_text(text)
-            embeddings = embedder.encode(chunks).tolist()
-
-            # Store in ChromaDB
-            collection_db.add(
-                embeddings=embeddings,
-                documents=chunks,
-                metadatas=[{"user_id": user_id, "element_id": element["_id"]} for _ in chunks],
-                ids=[f"{element['_id']}_{i}" for i in range(len(chunks))]
-            )
-
-        return {"message": "Data indexed successfully"}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Indexing failed: {str(e)}")
-
-# Smart search endpoint
-@app.get("/smart_search", response_model=dict)
-async def smart_search(user_id: str, query: str):
-    try:
-        if not query:
-            return JSONResponse(
-                content={"answer": "Please provide a query.", "elements": []},
-            )
-        
-        # Embed the query
-        query_embedding = embedder.encode(query).tolist()
-
-        # Search for similar chunks
-        results = collection_db.query(
-            query_embeddings=[query_embedding],
-            n_results=3,
-            where={"user_id": user_id}
-        )
-
-        # Extract relevant chunks
-        relevant_chunks = results["documents"][0] if results["documents"] else []
-        element_ids = [metadata["element_id"] for metadata in results["metadatas"][0]] if results["metadatas"] else []
-
-        # Combine chunks into an answer
-        answer = " ".join(relevant_chunks) if relevant_chunks else "I do not know."
-        elements = [{"_id": str(eid)} for eid in set(element_ids)]  # Return matching elements
-
-        return JSONResponse(
-            content={"answer": answer, "elements": elements},
-        )
-    except Exception as e:
-        return JSONResponse(
-            content={
-                "answer": "An error occurred while processing your query.",
-                "elements": [],
-            },
-            status_code=500,
-        )
 
 @app.get("/smart_search", response_model=dict)
 async def smart_search(user_id: str, query: str):
